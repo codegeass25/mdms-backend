@@ -1,0 +1,22 @@
+{
+  "name": "mdms-backend",
+  "version": "2.0.0",
+  "description": "Montesierra Dormitory Management System — Supabase-native backend (Brevo SMTP)",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "engines": { "node": ">=18.0.0" },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.8",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "helmet": "^8.3.0",
+    "morgan": "^1.11.0",
+    "node-cron": "^4.6.0",
+    "nodemailer": "^9.0.3"
+  }
+}
