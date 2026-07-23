@@ -24,6 +24,10 @@ const { appendEmailLog } = require('./emailLogService');
  * Resolve the effective SMTP config: overlay the caller-provided config
  * on top of the env defaults. `enabled` defaults to true unless the
  * request explicitly disables it.
+ *
+ * SECURITY NOTE: This helper intentionally lets an authenticated caller
+ * override server/user/pass for testing or per-tenant setups. Public,
+ * unauthenticated routes MUST NOT pass an untrusted `cfg` straight through.
  */
 function resolveConfig(cfg = {}) {
   const merged = {
@@ -66,10 +70,9 @@ function buildTransport(cfg) {
     host,
     port,
     secure,
-    requireTLS: !secure,
+    requireTLS: port === 587 || port === 25 || cfg.requireTLS === true,
     auth: { user, pass },
     tls: { servername: host, minVersion: 'TLSv1.2' },
-    family: 4,                 // force IPv4 — fixes ENETUNREACH on Render
     connectionTimeout: 20000,
     greetingTimeout: 15000,
     socketTimeout: 25000,
@@ -143,12 +146,37 @@ async function sendEmailWithRetry({
   while (attempt < maxAttempts) {
     try {
       const info = await transport.sendMail(mailOptions);
+
+      // FIX: surface provider acceptance/rejection details (Brevo and others
+      // populate info.accepted / info.rejected). This is the only way to know
+      // whether a 200-ish SMTP response actually resulted in delivery.
+      const accepted = Array.isArray(info.accepted) ? info.accepted : [];
+      const rejected = Array.isArray(info.rejected) ? info.rejected : [];
+      const pending = Array.isArray(info.pending) ? info.pending : [];
+
+      if (rejected.length && !accepted.length) {
+        const reason = `Provider rejected all recipients: ${rejected.join(', ')}`;
+        appendEmailLog({
+          to, subject, type, status: 'Failed',
+          retries: attempt, error: reason,
+          reference, messageId: info.messageId || '',
+        });
+        return { success: false, reason, reference, accepted, rejected, pending };
+      }
+
       appendEmailLog({
         to, subject, type, status: 'Sent',
         retries: attempt, error: '',
         reference, messageId: info.messageId || '',
       });
-      return { success: true, reference, messageId: info.messageId };
+      return {
+        success: true,
+        reference,
+        messageId: info.messageId,
+        accepted,
+        rejected,
+        pending,
+      };
     } catch (e) {
       lastErr = e;
       attempt++;
@@ -163,7 +191,11 @@ async function sendEmailWithRetry({
     retries: attempt - 1, error: (lastErr && lastErr.message) || 'Unknown SMTP failure',
     reference,
   });
-  return { success: false, reason: (lastErr && lastErr.message) || 'SMTP failure', reference };
+  return {
+    success: false,
+    reason: (lastErr && lastErr.message) || 'SMTP failure',
+    reference,
+  };
 }
 
 module.exports = {

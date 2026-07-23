@@ -21,6 +21,7 @@ const {
 const { ctx, baseShell } = require('../templates/shell');
 const { REF_PLACEHOLDER } = require('../utils/email-ref');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { EMAIL_REGEX } = require('../utils/validators');
 
 const router = express.Router();
 
@@ -45,14 +46,30 @@ router.post('/send-email', asyncHandler(async (req, res) => {
   });
   if (outcome.success) {
     return res.status(200).json({
-      success: true, message: 'Email dispatched.', reference: outcome.reference,
+      success: true,
+      message: 'Email dispatched.',
+      reference: outcome.reference,
+      accepted: outcome.accepted,
+      rejected: outcome.rejected,
     });
   }
-  return res.status(422).json({ error: outcome.reason, reference: outcome.reference });
+  return res.status(422).json({
+    error: outcome.reason,
+    reference: outcome.reference,
+    accepted: outcome.accepted,
+    rejected: outcome.rejected,
+  });
 }));
 
 router.post('/test-email', asyncHandler(async (req, res) => {
-  const cfg = req.body;
+  // FIX: separate the test recipient from the SMTP config.
+  // The frontend should send { to: 'test@example.com', server, port, ... }.
+  const { to, ...cfg } = req.body || {};
+
+  if (!to || !EMAIL_REGEX.test(to)) {
+    return res.status(400).json({ error: 'A valid test recipient ("to") is required.' });
+  }
+
   const resolved = resolveConfig(cfg);
   if (!resolved.email) return res.status(400).json({ error: 'Invalid config.' });
 
@@ -67,7 +84,7 @@ router.post('/test-email', asyncHandler(async (req, res) => {
     ...c, reference: REF_PLACEHOLDER, accent: '#047857',
   });
   const outcome = await sendEmailWithRetry({
-    to: resolved.email,
+    to,                              // <-- send to the supplied test recipient
     subject: `[${c.dormName}] SMTP Test`,
     html,
     type: 'Test',
@@ -79,9 +96,16 @@ router.post('/test-email', asyncHandler(async (req, res) => {
       success: true,
       message: 'Handshake verified — test email delivered.',
       reference: outcome.reference,
+      accepted: outcome.accepted,
+      rejected: outcome.rejected,
     });
   }
-  return res.status(422).json({ error: outcome.reason, reference: outcome.reference });
+  return res.status(422).json({
+    error: outcome.reason,
+    reference: outcome.reference,
+    accepted: outcome.accepted,
+    rejected: outcome.rejected,
+  });
 }));
 
 router.post('/send-reservation-email', asyncHandler(async (req, res) => {
@@ -117,8 +141,18 @@ router.post('/send-reservation-email', asyncHandler(async (req, res) => {
   res
     .status(outcome.success ? 200 : 422)
     .json(outcome.success
-      ? { success: true, reference: outcome.reference }
-      : { error: outcome.reason, reference: outcome.reference });
+      ? {
+          success: true,
+          reference: outcome.reference,
+          accepted: outcome.accepted,
+          rejected: outcome.rejected,
+        }
+      : {
+          error: outcome.reason,
+          reference: outcome.reference,
+          accepted: outcome.accepted,
+          rejected: outcome.rejected,
+        });
 }));
 
 module.exports = router;
