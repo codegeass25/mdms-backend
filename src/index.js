@@ -12,6 +12,10 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const dns = require('dns');
+
+// Force Node.js to prefer IPv4 over IPv6
+dns.setDefaultResultOrder('ipv4first');
 
 const env = require('./config/env');
 const store = require('./db/store');

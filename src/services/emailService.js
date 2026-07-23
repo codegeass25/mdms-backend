@@ -73,9 +73,9 @@ function buildTransport(cfg) {
     requireTLS: port === 587 || port === 25 || cfg.requireTLS === true,
     auth: { user, pass },
     tls: { servername: host, minVersion: 'TLSv1.2' },
-    connectionTimeout: 20000,
-    greetingTimeout: 15000,
-    socketTimeout: 25000,
+    connectionTimeout: 60000,
+    greetingTimeout: 30000,
+    socketTimeout: 60000,
     pool: false,
   });
 }
