@@ -69,6 +69,7 @@ function buildTransport(cfg) {
     requireTLS: !secure,
     auth: { user, pass },
     tls: { servername: host, minVersion: 'TLSv1.2' },
+    family: 4,                 // force IPv4 — fixes ENETUNREACH on Render
     connectionTimeout: 20000,
     greetingTimeout: 15000,
     socketTimeout: 25000,
