@@ -104,8 +104,14 @@ async function sendEmailWithRetry({
 }) {
   const cfg = resolveConfig(config);
   const st = { ...DEFAULT_SETTINGS, ...(settings || {}) };
-  const maxAttempts = Math.max(1, (st.retryAttempts || 3) + 1);
-  const waitMs = Math.max(1000, (st.retryIntervalMinutes || 5) * 60 * 1000);
+  // Caller can force a single attempt (HTTP paths do) by passing retryAttempts:0.
+  const maxAttempts = Math.max(1, ((st.retryAttempts ?? 3)) + 1);
+  // Cap inter-attempt wait at 3s so HTTP requests never hang for minutes.
+  // Background jobs that want longer backoff can pass retryIntervalMs directly.
+  const configuredWait = st.retryIntervalMs != null
+    ? Number(st.retryIntervalMs)
+    : Math.min(3000, (st.retryIntervalMinutes || 0) * 60 * 1000 || 1500);
+  const waitMs = Math.max(250, configuredWait);
 
   const reference = generateEmailReference(type);
   const finalHtml = injectReference(html, reference);

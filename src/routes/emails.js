@@ -4,6 +4,13 @@
  *   POST /api/send-email
  *   POST /api/test-email
  *   POST /api/send-reservation-email
+ *
+ * Status-code contract (per production spec):
+ *   200 — success
+ *   400 — malformed request body
+ *   422 — validation failure (bad recipient, missing config field)
+ *   500 — server misconfiguration (missing SMTP credentials on server)
+ *   502 — SMTP handshake / provider rejected the send
  */
 
 const express = require('express');
@@ -12,6 +19,7 @@ const {
   sendEmailWithRetry,
   verifySmtpHandshake,
   resolveConfig,
+  validateSmtpConfig,
 } = require('../services/emailService');
 const {
   tplReservationConfirmation,
@@ -42,7 +50,7 @@ router.post('/send-email', asyncHandler(async (req, res) => {
     text: body || null,
     type: type || 'Manual',
     config: cfg,
-    settings: db.settings,
+    settings: { ...db.settings, retryAttempts: 0 }, // one-shot for HTTP path
   });
   if (outcome.success) {
     return res.status(200).json({
@@ -53,7 +61,7 @@ router.post('/send-email', asyncHandler(async (req, res) => {
       rejected: outcome.rejected,
     });
   }
-  return res.status(422).json({
+  return res.status(502).json({
     error: outcome.reason,
     reference: outcome.reference,
     accepted: outcome.accepted,
@@ -62,19 +70,35 @@ router.post('/send-email', asyncHandler(async (req, res) => {
 }));
 
 router.post('/test-email', asyncHandler(async (req, res) => {
-  // FIX: separate the test recipient from the SMTP config.
-  // The frontend should send { to: 'test@example.com', server, port, ... }.
+  // The frontend sends { to: 'test@example.com', server, port, ... }.
   const { to, ...cfg } = req.body || {};
 
   if (!to || !EMAIL_REGEX.test(to)) {
-    return res.status(400).json({ error: 'A valid test recipient ("to") is required.' });
+    return res.status(422).json({ error: 'A valid test recipient ("to") is required.' });
   }
 
   const resolved = resolveConfig(cfg);
-  if (!resolved.email) return res.status(400).json({ error: 'Invalid config.' });
+  const invalid = validateSmtpConfig(resolved);
+  if (invalid) {
+    // Distinguish "server has no credentials at all" from "the payload
+    // supplied invalid config" so the caller can react correctly.
+    const serverHasNoCreds = !resolved.email || !resolved.pass;
+    const code = serverHasNoCreds ? 500 : 422;
+    return res.status(code).json({
+      error: invalid,
+      hint: serverHasNoCreds
+        ? 'Set SMTP_USER / SMTP_PASS in Render → Environment, or pass them in the request body.'
+        : 'Fix the SMTP fields in the settings dialog and try again.',
+    });
+  }
 
   const handshake = await verifySmtpHandshake(cfg);
-  if (!handshake.ok) return res.status(422).json({ error: handshake.reason });
+  if (!handshake.ok) {
+    return res.status(502).json({
+      error: handshake.reason,
+      hint: 'SMTP relay refused the connection. Common causes: wrong host/port, blocked outbound port, expired API key, or Brevo sender not verified.',
+    });
+  }
 
   const db = readStorage();
   const c = ctx(db);
@@ -84,12 +108,12 @@ router.post('/test-email', asyncHandler(async (req, res) => {
     ...c, reference: REF_PLACEHOLDER, accent: '#047857',
   });
   const outcome = await sendEmailWithRetry({
-    to,                              // <-- send to the supplied test recipient
+    to,
     subject: `[${c.dormName}] SMTP Test`,
     html,
     type: 'Test',
     config: cfg,
-    settings: db.settings,
+    settings: { ...db.settings, retryAttempts: 0 }, // no long retry loop for HTTP
   });
   if (outcome.success) {
     return res.status(200).json({
@@ -100,7 +124,7 @@ router.post('/test-email', asyncHandler(async (req, res) => {
       rejected: outcome.rejected,
     });
   }
-  return res.status(422).json({
+  return res.status(502).json({
     error: outcome.reason,
     reference: outcome.reference,
     accepted: outcome.accepted,
@@ -136,10 +160,10 @@ router.post('/send-reservation-email', asyncHandler(async (req, res) => {
     html: tpl.html,
     type,
     config: db.emailConfig,
-    settings: db.settings,
+    settings: { ...db.settings, retryAttempts: 0 },
   });
   res
-    .status(outcome.success ? 200 : 422)
+    .status(outcome.success ? 200 : 502)
     .json(outcome.success
       ? {
           success: true,

@@ -3,20 +3,27 @@ services:
     name: mdms-backend
     env: node
     plan: starter
+    region: singapore
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: 20.11.1
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: SUPABASE_STATE_ID
+        value: main
       - key: SMTP_HOST
         value: smtp-relay.brevo.com
       - key: SMTP_PORT
         value: 587
+      - key: SMTP_SECURE
+        value: false
       - key: SMTP_USER
         sync: false
       - key: SMTP_PASS
@@ -24,4 +31,6 @@ services:
       - key: SMTP_FROM_NAME
         value: Montesierra Dormitory
       - key: SMTP_FROM_EMAIL
+        sync: false
+      - key: CORS_ORIGINS
         sync: false
